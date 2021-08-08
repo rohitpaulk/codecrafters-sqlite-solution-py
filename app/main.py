@@ -36,7 +36,6 @@ if command == ".dbinfo":
                 'sql': record[4],
             })
 
-        print("Your code goes here!")
         print(f"number of tables: {len(sqlite_schema_rows)}")
-else:
-    print(f"Invalid command: {command}")
+elif command == ".tables":
+    print("abcd hey")
