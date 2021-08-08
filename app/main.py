@@ -37,8 +37,6 @@ if command == ".dbinfo":
             })
 
         print("Your code goes here!")
-
-        # Uncomment this to pass the first stage
-        # print(f"number of tables: {len(sqlite_schema_rows)}")
+        print(f"number of tables: {len(sqlite_schema_rows)}")
 else:
     print(f"Invalid command: {command}")
