@@ -45,6 +45,6 @@ if command == ".dbinfo":
 elif command == ".tables":
     sqlite_schema_rows = read_sqlite_schema_rows(database_file_path)
     print(sqlite_schema_rows)
-    print(b" ".join([row['tbl_name'] for row in sqlite_schema_rows]))
+    print(b" a".join([row['tbl_name'] for row in sqlite_schema_rows]))
 else:
     raise Exception(f"Invalid command {command}")
