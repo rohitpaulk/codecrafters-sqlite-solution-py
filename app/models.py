@@ -17,18 +17,11 @@ class Table:
 
     @property
     def columns(self) -> List[Column]:
-        tokens = self.create_table_sql.split()
+        sql = self.create_table_sql.strip().split("(")[1]
+        sql = sql.split(")")[0]
 
-        # Remove all the fluff
-        tokens.pop(0)  # create
-        tokens.pop(0)  # table
-        tokens.pop(0)  # <table_name>
-        tokens.pop(0)  # (
-        tokens.pop()  # )
-
-        column_definitions = " ".join(tokens).split(",")
-
-        sys.stderr.write(self.create_table_sql)
+        tokens = [x.strip() for x in sql.split()]
+        column_definitions = [x.strip() for x in " ".join(tokens).split(",")]
 
         return [
             Column(
