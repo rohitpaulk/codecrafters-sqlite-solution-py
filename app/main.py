@@ -44,6 +44,6 @@ if command == ".dbinfo":
     print(f"number of tables: {len(sqlite_schema_rows)}")
 elif command == ".tables":
     sqlite_schema_rows = read_sqlite_schema_rows(database_file_path)
-    print(" a".join([row['tbl_name'].decode('utf-8') for row in sqlite_schema_rows]))
+    print(" ".join([row['tbl_name'].decode('utf-8') for row in sqlite_schema_rows]))
 else:
     raise Exception(f"Invalid command {command}")
