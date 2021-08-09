@@ -1,4 +1,5 @@
 from .varint_parser import parse_varint
+from .models import Table, Record
 
 
 def parse_column_value(stream, serial_type):
@@ -13,8 +14,14 @@ def parse_column_value(stream, serial_type):
         raise Exception(f"Unhandled serial_type {serial_type}")
 
 
-def parse_record(stream, column_count):
+def parse_record(stream, table: Table) -> Record:
     _number_of_bytes_in_header = parse_varint(stream)
 
-    serial_types = [parse_varint(stream) for i in range(column_count)]
-    return [parse_column_value(stream, serial_type) for serial_type in serial_types]
+    serial_types = [parse_varint(stream) for i in range(len(table.columns))]
+    column_values = [parse_column_value(stream, serial_type) for serial_type in serial_types]
+
+    return Record(
+        column_names_to_values={
+            column.name: column_values[i] for i, column in enumerate(table.columns)
+        }
+    )
