@@ -36,7 +36,7 @@ def read_sqlite_schema_rows(database_file_path):
                 'sql': record[4],
             })
 
-        return sqlite_schema_rows
+        return [row for row in sqlite_schema_rows if row['tbl_name'] != b"sqlite_sequence"]
 
 
 if command == ".dbinfo":
@@ -44,7 +44,6 @@ if command == ".dbinfo":
     print(f"number of tables: {len(sqlite_schema_rows)}")
 elif command == ".tables":
     sqlite_schema_rows = read_sqlite_schema_rows(database_file_path)
-    print(sqlite_schema_rows)
-    print(b" a".join([row['tbl_name'] for row in sqlite_schema_rows]))
+    print(" a".join([row['tbl_name'].decode('utf-8') for row in sqlite_schema_rows]))
 else:
     raise Exception(f"Invalid command {command}")
