@@ -10,6 +10,8 @@ def parse_column_value(stream, serial_type):
     elif serial_type == 1:
         # 8 bit twos-complement integer
         return int.from_bytes(stream.read(1), "big")
+    elif serial_type == 0:
+        return None
     else:
         raise Exception(f"Unhandled serial_type {serial_type}")
 

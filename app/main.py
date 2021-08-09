@@ -86,7 +86,10 @@ def execute_statement(statement):
         column_name = statement.split(" ")[1]
         table_name = statement.split(" ")[-1]
         table = get_table(database_file_path, table_name)
-        print(column_name, f"table: {table_name}", 'columns: ', list(map(lambda x: [x.name, x.type], table.columns)))
+        rows = read_table_rows(database_file_path, table)
+
+        for row in rows:
+            print(row[column_name].decode('utf-8'))
     else:
         raise Exception(f"Unknown SQL statement: {statement}")
 
