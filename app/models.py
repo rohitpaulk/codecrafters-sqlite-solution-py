@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict, List
+import sys
 
 
 @dataclass
@@ -25,12 +26,14 @@ class Table:
         tokens.pop(0)  # (
         tokens.pop()  # )
 
-        column_definitions = " ".join(tokens).split(", ")
+        column_definitions = " ".join(tokens).split(",")
+
+        sys.stderr.write(self.create_table_sql)
 
         return [
             Column(
-                name=column_definition.split(" ", 1)[0],
-                type=column_definition.split(" ", 1)[1],  # Ignore constraints for now, assume this type
+                name=column_definition.strip().split(" ", 1)[0],
+                type=column_definition.strip().split(" ", 1)[1],  # Ignore constraints for now, assume this type
             )
             for column_definition in column_definitions
         ]
