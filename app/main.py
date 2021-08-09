@@ -6,7 +6,7 @@ from .varint_parser import parse_varint
 database_file_path = sys.argv[1]
 command = sys.argv[2]
 
-if command == ".dbinfo":
+def read_sqlite_schema_rows(database_file_path):
     with open(database_file_path, "rb") as database_file:
         database_file.seek(100)  # Skip the header section
 
@@ -14,7 +14,7 @@ if command == ".dbinfo":
         _first_freeblock_start = int.from_bytes(database_file.read(2), "big")
         number_of_cells = int.from_bytes(database_file.read(2), "big")
 
-        database_file.seek(100+8)  # Skip the database header & b-tree page header, get to the cell pointer array
+        database_file.seek(100 + 8)  # Skip the database header & b-tree page header, get to the cell pointer array
 
         cell_pointers = [int.from_bytes(database_file.read(2), "big") for _ in range(number_of_cells)]
 
@@ -36,6 +36,15 @@ if command == ".dbinfo":
                 'sql': record[4],
             })
 
-        print(f"number of tables: {len(sqlite_schema_rows)}")
+        return sqlite_schema_rows
+
+
+if command == ".dbinfo":
+    sqlite_schema_rows = read_sqlite_schema_rows(database_file_path)
+    print(f"number of tables: {len(sqlite_schema_rows)}")
 elif command == ".tables":
-    print("abcd hey")
+    sqlite_schema_rows = read_sqlite_schema_rows(database_file_path)
+    print(sqlite_schema_rows)
+    print(b" ".join([row['tbl_name'] for row in sqlite_schema_rows]))
+else:
+    raise Exception(f"Invalid command {command}")
