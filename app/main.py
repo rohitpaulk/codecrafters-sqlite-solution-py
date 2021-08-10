@@ -1,6 +1,7 @@
 import sys
-
 from typing import Optional
+
+import sqlparse
 
 from .models import Table, Record
 from .record_parser import parse_record
@@ -77,19 +78,35 @@ def get_table(database_file_path :str, table_name: str) -> Optional[Table]:
 
 
 def execute_statement(statement):
-    if statement.startswith("select count(*)"):
-        table_name = statement.split(" ")[-1]
-        table = get_table(database_file_path, table_name)
-        rows = read_table_rows(database_file_path, table)
-        print(len(rows))
-    elif statement.startswith("select"):
-        column_name = statement.split(" ")[1]
-        table_name = statement.split(" ")[-1]
-        table = get_table(database_file_path, table_name)
-        rows = read_table_rows(database_file_path, table)
+    parsed_statement = sqlparse.parse(statement)[0]
 
-        for row in rows:
-            print(row[column_name].decode('utf-8'))
+    if parsed_statement.get_type() == "SELECT":
+        current_index, token_after_select = parsed_statement.token_next(0)
+
+        if isinstance(token_after_select, sqlparse.sql.Function):
+            function_name_token = token_after_select.token_matching(lambda token: isinstance(token, sqlparse.sql.Identifier), 0)
+            function_name = str(function_name_token)
+
+            if function_name.lower() == "count":
+                table_name_token = parsed_statement.token_matching(lambda token: isinstance(token, sqlparse.sql.Identifier), current_index)
+                table = get_table(database_file_path, str(table_name_token))
+                rows = read_table_rows(database_file_path, table)
+                print(len(rows))
+            else:
+                raise Exception(f"Unknown function: {function_name}")
+        else:
+            column_name_tokens = token_after_select if isinstance(token_after_select, sqlparse.sql.Identifier) else token_after_select.get_identifiers()
+            current_index, _from_token = parsed_statement.token_next(current_index)
+            current_index, table_name_token = parsed_statement.token_next(current_index)
+
+            column_names = [str(column_name_token) for column_name_token in column_name_tokens]
+            table_name = str(table_name_token)
+
+            table = get_table(database_file_path, table_name)
+            rows = read_table_rows(database_file_path, table)
+
+            for row in rows:
+                print("|".join(row[column_name].decode('utf-8') for column_name in column_names))
     else:
         raise Exception(f"Unknown SQL statement: {statement}")
 
