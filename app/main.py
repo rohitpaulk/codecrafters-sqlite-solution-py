@@ -83,6 +83,7 @@ def execute_statement(statement):
     if parsed_statement.get_type() == "SELECT":
         aggregations = []
         columns_to_select = []
+        filter_clauses = []
 
         current_index, token_after_select = parsed_statement.token_next(0)
 
@@ -102,14 +103,22 @@ def execute_statement(statement):
         current_index, table_name_token = parsed_statement.token_next(current_index)
         table_name = str(table_name_token)
 
+        current_index, token_after_table_name = parsed_statement.token_next(current_index)
+
+        if isinstance(token_after_table_name, sqlparse.sql.Where):
+            where_token_list = token_after_table_name
+            comparison_token = where_token_list.token_matching(lambda token: isinstance(token, sqlparse.sql.Comparison), 0)
+            filter_clauses.append((str(comparison_token.left), str(comparison_token.right).strip("'")))
+
         table = get_table(database_file_path, table_name)
+        rows = read_table_rows(database_file_path, table)
+
+        for filter_clause in filter_clauses:
+            rows = [row for row in rows if row[filter_clause[0]].decode('utf-8') == filter_clause[1]]
 
         if aggregations:
-            rows = read_table_rows(database_file_path, table)
             print(len(rows))
         else:
-            rows = read_table_rows(database_file_path, table)
-
             for row in rows:
                 print("|".join(row[column_name].decode('utf-8') for column_name in columns_to_select))
     else:
