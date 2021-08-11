@@ -81,6 +81,9 @@ def execute_statement(statement):
     parsed_statement = sqlparse.parse(statement)[0]
 
     if parsed_statement.get_type() == "SELECT":
+        aggregations = []
+        columns_to_select = []
+
         current_index, token_after_select = parsed_statement.token_next(0)
 
         if isinstance(token_after_select, sqlparse.sql.Function):
@@ -88,25 +91,27 @@ def execute_statement(statement):
             function_name = str(function_name_token)
 
             if function_name.lower() == "count":
-                table_name_token = parsed_statement.token_matching(lambda token: isinstance(token, sqlparse.sql.Identifier), current_index)
-                table = get_table(database_file_path, str(table_name_token))
-                rows = read_table_rows(database_file_path, table)
-                print(len(rows))
+                aggregations.append("COUNT")
             else:
                 raise Exception(f"Unknown function: {function_name}")
         else:
             column_name_tokens = token_after_select if isinstance(token_after_select, sqlparse.sql.Identifier) else token_after_select.get_identifiers()
-            current_index, _from_token = parsed_statement.token_next(current_index)
-            current_index, table_name_token = parsed_statement.token_next(current_index)
+            columns_to_select = [str(column_name_token) for column_name_token in column_name_tokens]
 
-            column_names = [str(column_name_token) for column_name_token in column_name_tokens]
-            table_name = str(table_name_token)
+        current_index, _from_token = parsed_statement.token_next(current_index)
+        current_index, table_name_token = parsed_statement.token_next(current_index)
+        table_name = str(table_name_token)
 
-            table = get_table(database_file_path, table_name)
+        table = get_table(database_file_path, table_name)
+
+        if aggregations:
+            rows = read_table_rows(database_file_path, table)
+            print(len(rows))
+        else:
             rows = read_table_rows(database_file_path, table)
 
             for row in rows:
-                print("|".join(row[column_name].decode('utf-8') for column_name in column_names))
+                print("|".join(row[column_name].decode('utf-8') for column_name in columns_to_select))
     else:
         raise Exception(f"Unknown SQL statement: {statement}")
 
