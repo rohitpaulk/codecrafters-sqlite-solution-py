@@ -24,30 +24,62 @@ def read_sqlite_schema_records(database_file_path):
 
 
 def read_table_rows(database_file_path: str, table: Table):
-    page_header_size = 100 if table.root_page == 1 else 0
+    file_header_size = 100 if table.root_page == 1 else 0
 
     with open(database_file_path, "rb") as database_file:
         database_file.seek(16)  # Header string
         page_size = int.from_bytes(database_file.read(2), "big")
 
         page_start = (table.root_page - 1) * page_size
-        database_file.seek(page_start + page_header_size)
+        database_file.seek(page_start + file_header_size)
 
-        _page_type = int.from_bytes(database_file.read(1), "big")
+        page_type = int.from_bytes(database_file.read(1), "big")
+        print(f"page_type: {page_type}")
+
+        is_interior_page = (page_type == 5)
+        is_leaf_page = (page_type == 13)
+
+        if not (is_leaf_page ^ is_interior_page):
+            raise Exception(f"expected either a leaf page of interior page, got: {page_type}")
+
+        page_header_size = 12 if is_interior_page else 8
+
         _first_freeblock_start = int.from_bytes(database_file.read(2), "big")
         number_of_cells = int.from_bytes(database_file.read(2), "big")
+        _start_of_content_area = int.from_bytes(database_file.read(2), "big")
+        database_file.read(1) # fragmented free bytes
+        right_most_pointer = int.from_bytes(database_file.read(4), "big") if is_interior_page else None
+        print(f"number of cells: {number_of_cells}")
+        print(f"start of content area: {_start_of_content_area}")
+        print(f"right_most pointer: {right_most_pointer}")
 
-        database_file.seek(page_start + page_header_size + 8)
+        database_file.seek(page_start + file_header_size + page_header_size)
         cell_pointers = [int.from_bytes(database_file.read(2), "big") for _ in range(number_of_cells)]
 
         records = []
 
         # Each of these cells represents a row in the sqlite_schema table.
-        for cell_pointer in cell_pointers:
+        for index, cell_pointer in enumerate(cell_pointers):
+            print("")
+            print(f"Reading {'leaf' if is_leaf_page else 'interior'} cell pointer {cell_pointer} ({index}/{len(cell_pointers)})")
+
             database_file.seek(page_start + cell_pointer)
-            _number_of_bytes_in_payload = parse_varint(database_file)
-            rowid = parse_varint(database_file)
-            records.append(parse_record(database_file, table))
+
+            if is_leaf_page:
+                _number_of_bytes_in_payload = parse_varint(database_file)
+                print(f"Number of bytes: {_number_of_bytes_in_payload}")
+                rowid = parse_varint(database_file)
+                print(f"rowid: {rowid}")
+                record = parse_record(database_file, table)
+                print(record)
+                records.append(record)
+            else:
+                left_child_pointer = int.from_bytes(database_file.read(4), "big")
+                rowid = parse_varint(database_file)
+                print(f"left_child_pointer: {left_child_pointer}")
+                print(f"rowid: {rowid}")
+
+            print("")
 
         return records
 
@@ -111,6 +143,7 @@ def execute_statement(statement):
             filter_clauses.append((str(comparison_token.left), str(comparison_token.right).strip("'")))
 
         table = get_table(database_file_path, table_name)
+        print(table.columns)
         rows = read_table_rows(database_file_path, table)
 
         for filter_clause in filter_clauses:
