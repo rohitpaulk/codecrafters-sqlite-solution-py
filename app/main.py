@@ -1,11 +1,52 @@
 import sys
 from typing import Optional
+from dataclasses import dataclass
 
 import sqlparse
 
 from .models import Table, Record
 from .record_parser import parse_record
 from .varint_parser import parse_varint
+
+
+@dataclass(init=False)
+class PageHeader:
+    page_type: int
+    first_free_block_start: int
+    number_of_cells: int
+    start_of_content_area: int
+    fragmented_free_bytes: int
+    right_most_pointer: int  # Only applicable for interior pages
+
+    @classmethod
+    def parse_from(cls, database_file):
+        instance = cls()
+
+        instance.page_type = int.from_bytes(database_file.read(1), "big")
+
+        if not (instance.is_leaf_page ^ instance.is_interior_page):
+            raise Exception(f"expected a leaf or interior page, got: {instance.page_type}")
+
+        instance.first_free_block_start = int.from_bytes(database_file.read(2), "big")
+        instance.number_of_cells = int.from_bytes(database_file.read(2), "big")
+        instance.start_of_content_area = int.from_bytes(database_file.read(2), "big")
+        instance.fragmented_free_bytes = int.from_bytes(database_file.read(1), "big")
+        instance.right_most_pointer = int.from_bytes(database_file.read(4), "big") if instance.is_interior_page else None
+
+        return instance
+
+    @property
+    def size(self):
+        return 8 if self.is_leaf_page else 12
+
+    @property
+    def is_leaf_page(self):
+        return self.page_type == 13
+
+    @property
+    def is_interior_page(self):
+        return self.page_type == 5
+
 
 database_file_path = sys.argv[1]
 command_or_statement = sys.argv[2]
@@ -21,6 +62,60 @@ SQLITE_SCHEMA_TABLE = Table(
 def read_sqlite_schema_records(database_file_path):
     rows = read_table_rows(database_file_path, SQLITE_SCHEMA_TABLE)
     return [row for row in rows if row["tbl_name"] != b"sqlite_sequence"]
+
+
+def read_records_from_table_leaf_page(database_file_path, table, page_number):
+    file_header_size = 100 if page_number == 1 else 0
+
+    with open(database_file_path, "rb") as database_file:
+        database_file.seek(16)  # Header string
+        page_size = int.from_bytes(database_file.read(2), "big")
+
+        page_start = (page_number - 1) * page_size
+        database_file.seek(page_start + file_header_size)
+
+        page_header = PageHeader.parse_from(database_file)
+
+        database_file.seek(page_start + file_header_size + page_header.size)
+        cell_pointers = [int.from_bytes(database_file.read(2), "big") for _ in range(page_header.number_of_cells)]
+
+        records = []
+
+        # Each of these cells represents a row in the sqlite_schema table.
+        for index, cell_pointer in enumerate(cell_pointers):
+            database_file.seek(page_start + cell_pointer)
+
+            _number_of_bytes_in_payload = parse_varint(database_file)
+            rowid = parse_varint(database_file)  # Use this!
+            records.append(parse_record(database_file, table))
+
+        return records
+
+
+def read_nodes_from_table_interior_page(database_file_path, table, page_number):
+    file_header_size = 100 if page_number == 1 else 0  # Should always be 0 for an interior page?
+
+    with open(database_file_path, "rb") as database_file:
+        database_file.seek(16)  # Header string
+        page_size = int.from_bytes(database_file.read(2), "big")
+
+        page_start = (page_number - 1) * page_size
+        database_file.seek(page_start + file_header_size)
+
+        page_header = PageHeader.parse_from(database_file)
+        cell_pointers = [int.from_bytes(database_file.read(2), "big") for _ in range(page_header.number_of_cells)]
+
+        nodes = []
+
+        # Each of these cells represents a row in the sqlite_schema table.
+        for index, cell_pointer in enumerate(cell_pointers):
+            database_file.seek(page_start + cell_pointer)
+
+            left_child_page = int.from_bytes(database_file.read(4), "big")
+            rowid = parse_varint(database_file)  # Use this!
+            nodes.append({'id': rowid, 'left_child_page': left_child_page})
+
+        return nodes
 
 
 def read_table_rows(database_file_path: str, table: Table):
@@ -42,44 +137,12 @@ def read_table_rows(database_file_path: str, table: Table):
         if not (is_leaf_page ^ is_interior_page):
             raise Exception(f"expected either a leaf page of interior page, got: {page_type}")
 
-        page_header_size = 12 if is_interior_page else 8
-
-        _first_freeblock_start = int.from_bytes(database_file.read(2), "big")
-        number_of_cells = int.from_bytes(database_file.read(2), "big")
-        _start_of_content_area = int.from_bytes(database_file.read(2), "big")
-        database_file.read(1) # fragmented free bytes
-        right_most_pointer = int.from_bytes(database_file.read(4), "big") if is_interior_page else None
-        print(f"number of cells: {number_of_cells}")
-        print(f"start of content area: {_start_of_content_area}")
-        print(f"right_most pointer: {right_most_pointer}")
-
-        database_file.seek(page_start + file_header_size + page_header_size)
-        cell_pointers = [int.from_bytes(database_file.read(2), "big") for _ in range(number_of_cells)]
-
-        records = []
-
-        # Each of these cells represents a row in the sqlite_schema table.
-        for index, cell_pointer in enumerate(cell_pointers):
-            print("")
-            print(f"Reading {'leaf' if is_leaf_page else 'interior'} cell pointer {cell_pointer} ({index}/{len(cell_pointers)})")
-
-            database_file.seek(page_start + cell_pointer)
-
-            if is_leaf_page:
-                _number_of_bytes_in_payload = parse_varint(database_file)
-                print(f"Number of bytes: {_number_of_bytes_in_payload}")
-                rowid = parse_varint(database_file)
-                print(f"rowid: {rowid}")
-                record = parse_record(database_file, table)
-                print(record)
-                records.append(record)
-            else:
-                left_child_pointer = int.from_bytes(database_file.read(4), "big")
-                rowid = parse_varint(database_file)
-                print(f"left_child_pointer: {left_child_pointer}")
-                print(f"rowid: {rowid}")
-
-            print("")
+        if is_leaf_page:
+            records = read_records_from_table_leaf_page(database_file_path, table, table.root_page)
+        else:
+            btree_nodes = read_nodes_from_table_interior_page(database_file_path, table, table.root_page)
+            for btree_node in btree_nodes:
+                print(btree_node)
 
         return records
 
