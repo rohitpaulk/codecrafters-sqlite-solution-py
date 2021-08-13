@@ -11,6 +11,8 @@ def parse_column_value(stream, serial_type):
         # BLOB encoding
         n_bytes = (serial_type - 12) // 2
         return stream.read(n_bytes)
+    elif serial_type == 9:
+        return 1
     elif serial_type == 4:
         # 32 bit twos-complement integer
         return int.from_bytes(stream.read(4), "big")

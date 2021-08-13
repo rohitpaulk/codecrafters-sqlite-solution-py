@@ -1,6 +1,7 @@
 import sys
 from typing import Optional, List
 from dataclasses import dataclass
+import time
 
 import sqlparse
 
@@ -95,7 +96,7 @@ class Page:
         raise Exception(f"Invalid page type: {page_header.page_type_description}")
 
     @property
-    def cell_content_area_start_index(self):
+    def cell_pointer_array_start_index(self):
         return self.start_index + self.file_header_size + self.header.size
 
     @property
@@ -114,6 +115,10 @@ class Page:
     def start_index(self):
         return (self.number - 1) * self.size
 
+    def read_cell_pointers(self, database_file):
+        database_file.seek(self.cell_pointer_array_start_index)
+        return [int.from_bytes(database_file.read(2), "big") for _ in range(self.header.number_of_cells)]
+
 
 class LeafTableBTreePage(Page):
     records: List[Record]
@@ -126,8 +131,7 @@ class LeafTableBTreePage(Page):
         return page
 
     def parse_records_from(self, database_file, table: Table):
-        database_file.seek(self.cell_content_area_start_index)
-        cell_pointers = [int.from_bytes(database_file.read(2), "big") for _ in range(self.header.number_of_cells)]
+        cell_pointers = self.read_cell_pointers(database_file)
 
         self.records = []
 
@@ -140,13 +144,36 @@ class LeafTableBTreePage(Page):
             self.records.append(parse_record(database_file, table))
 
 
+@dataclass
+class InteriorTableBTreePageCell:
+    left_child_pointer: int
+    key: int
+
+
 class InteriorTableBTreePage(Page):
-    pass
+    cells: List[InteriorTableBTreePageCell]
 
     @classmethod
-    def parse_from(cls, database_file, page_number, table: Table):
+    def parse_from(cls, database_file, page_number, _table: Table):
         page = Page.parse_unknown_type_from(database_file, page_number)
+        page.parse_cells_from(database_file)
         return page
+
+    def parse_cells_from(self, database_file):
+        cell_pointers = self.read_cell_pointers(database_file)
+
+        self.cells = []
+
+        for index, cell_pointer in enumerate(cell_pointers):
+            database_file.seek(self.start_index + cell_pointer)
+
+            left_child_pointer = int.from_bytes(database_file.read(4), "big")
+            key = parse_varint(database_file)
+            self.cells.append(InteriorTableBTreePageCell(left_child_pointer=left_child_pointer, key=key))
+
+    @property
+    def right_most_pointer(self):
+        return self.header.right_most_pointer
 
 
 database_file_path = sys.argv[1]
@@ -165,56 +192,27 @@ def read_sqlite_schema_records(database_file_path):
     return [row for row in rows if row["tbl_name"] != b"sqlite_sequence"]
 
 
-def read_nodes_from_table_interior_page(database_file_path, table, page_number):
-    file_header_size = 100 if page_number == 1 else 0  # Should always be 0 for an interior page?
-
-    with open(database_file_path, "rb") as database_file:
-        database_file.seek(16)  # Header string
-        page_size = int.from_bytes(database_file.read(2), "big")
-
-        page_start = (page_number - 1) * page_size
-        database_file.seek(page_start + file_header_size)
-
-        page_header = PageHeader.parse_from(database_file)
-
-        if not page_header.is_interior_table_btree_page:
-            raise Exception(f"Expected interior page, got: {page_header.page_type_description}")
-
-        cell_pointers = [int.from_bytes(database_file.read(2), "big") for _ in range(page_header.number_of_cells)]
-
-        nodes = []
-
-        # Each of these cells represents a row in the sqlite_schema table.
-        for index, cell_pointer in enumerate(cell_pointers):
-            database_file.seek(page_start + cell_pointer)
-
-            left_child_page = int.from_bytes(database_file.read(4), "big")
-            rowid = parse_varint(database_file)  # Use this!
-            nodes.append({'id': rowid, 'left_child_page': left_child_page})
-
-        return nodes
-
-
 def read_table_rows(database_file_path: str, table: Table):
-    file_header_size = 100 if table.root_page == 1 else 0
-
-    with open(database_file_path, "rb") as database_file:
-        page = Page.parse_unknown_type_from(database_file, table.root_page)
+    def collect_records_from_interior_or_leaf_page(database_file, page_number):
+        page = Page.parse_unknown_type_from(database_file, page_number)
 
         if page.is_leaf_table_btree_page:
-            page = LeafTableBTreePage.parse_from(database_file, table.root_page, table)
+            page = LeafTableBTreePage.parse_from(database_file, page_number, table)
             return page.records
         elif page.is_interior_table_btree_page:
-            page = InteriorTableBTreePage.parse_from(database_file, table.root_page, table)
-            print("UNKNOWN")
-            # btree_nodes = read_nodes_from_table_interior_page(database_file_path, table, table.root_page)
-            # right_most_pointer_nodes = read_nodes_from_table_interior_page(database_file_path, table, page_header.right_most_pointer)
-            # print("")
-            # print(right_most_pointer_nodes)
-            # print("")
-            # return []
+            page = InteriorTableBTreePage.parse_from(database_file, page_number, table)
 
-        return []
+            records = []
+
+            for cell in page.cells:
+                records += collect_records_from_interior_or_leaf_page(database_file, cell.left_child_pointer)
+
+            records += collect_records_from_interior_or_leaf_page(database_file, page.right_most_pointer)
+
+            return records
+
+    with open(database_file_path, "rb") as database_file:
+        return collect_records_from_interior_or_leaf_page(database_file, table.root_page)
 
 
 def handle_dot_command(command):
