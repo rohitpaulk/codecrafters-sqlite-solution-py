@@ -7,6 +7,7 @@ import sys
 class Column:
     name: str
     type: str
+    is_primary_key: bool
 
 
 @dataclass
@@ -27,6 +28,7 @@ class Table:
             Column(
                 name=column_definition.strip().split(" ", 1)[0],
                 type=column_definition.strip().split(" ", 1)[1],  # Ignore constraints for now, assume this type
+                is_primary_key='primary key' in column_definition.lower(),
             )
             for column_definition in column_definitions
         ]

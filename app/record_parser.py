@@ -28,7 +28,7 @@ def parse_column_value(stream, serial_type):
         raise Exception(f"Unhandled serial_type {serial_type}")
 
 
-def parse_record(stream, table: Table) -> Record:
+def parse_record(stream, table: Table, rowid: int) -> Record:
     _number_of_bytes_in_header = parse_varint(stream)
 
     serial_types = [parse_varint(stream) for i in range(len(table.columns))]
@@ -36,6 +36,6 @@ def parse_record(stream, table: Table) -> Record:
 
     return Record(
         column_names_to_values={
-            column.name: column_values[i] for i, column in enumerate(table.columns)
+            column.name: rowid if column.is_primary_key else column_values[i] for i, column in enumerate(table.columns)
         }
     )

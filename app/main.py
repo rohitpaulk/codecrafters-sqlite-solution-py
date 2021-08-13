@@ -140,8 +140,8 @@ class LeafTableBTreePage(Page):
             database_file.seek(self.start_index + cell_pointer)
 
             _number_of_bytes_in_payload = parse_varint(database_file)
-            rowid = parse_varint(database_file)  # Use this!
-            self.records.append(parse_record(database_file, table))
+            rowid = parse_varint(database_file)
+            self.records.append(parse_record(database_file, table, rowid))
 
 
 @dataclass
@@ -282,8 +282,17 @@ def execute_statement(statement):
         if aggregations:
             print(len(rows))
         else:
+            def format_value(value):
+                if value is None:
+                    return ""
+
+                if isinstance(value, int):
+                    return str(value)
+
+                return value.decode('utf-8')
+
             for row in rows:
-                print("|".join((row[column_name] or b"").decode('utf-8') for column_name in columns_to_select))
+                print("|".join(format_value(row[column_name]) for column_name in columns_to_select))
     else:
         raise Exception(f"Unknown SQL statement: {statement}")
 
