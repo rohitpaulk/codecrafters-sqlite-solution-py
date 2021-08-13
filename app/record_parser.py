@@ -16,6 +16,9 @@ def parse_column_value(stream, serial_type):
     elif serial_type == 4:
         # 32 bit twos-complement integer
         return int.from_bytes(stream.read(4), "big")
+    elif serial_type == 3:
+        # 24 bit twos-complement integer
+        return int.from_bytes(stream.read(3), "big")
     elif serial_type == 2:
         # 16 bit twos-complement integer
         return int.from_bytes(stream.read(2), "big")
