@@ -277,7 +277,7 @@ def execute_statement(statement):
         rows = read_table_rows(database_file_path, table)
 
         for filter_clause in filter_clauses:
-            rows = [row for row in rows if row[filter_clause[0]].decode('utf-8') == filter_clause[1]]
+            rows = [row for row in rows if (row[filter_clause[0]] or b"").decode('utf-8') == filter_clause[1]]
 
         if aggregations:
             print(len(rows))
