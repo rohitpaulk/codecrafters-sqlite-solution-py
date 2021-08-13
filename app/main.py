@@ -283,7 +283,7 @@ def execute_statement(statement):
             print(len(rows))
         else:
             for row in rows:
-                print("|".join(row[column_name].decode('utf-8') for column_name in columns_to_select))
+                print("|".join((row[column_name] or b"").decode('utf-8') for column_name in columns_to_select))
     else:
         raise Exception(f"Unknown SQL statement: {statement}")
 
