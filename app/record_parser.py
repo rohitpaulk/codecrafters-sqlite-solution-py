@@ -52,4 +52,4 @@ def parse_table_record(stream, table: Table, rowid: int) -> Record:
 
 def parse_index_record(stream, index: Index) -> Tuple[str, int]:
     values = parse_record(stream, len(index.column_names) + 1)  # Has value + ID?
-    return (values[0].decode('utf-8'), values[1])
+    return (values[0] or "").decode('utf-8'), values[1]
