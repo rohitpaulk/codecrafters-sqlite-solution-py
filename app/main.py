@@ -8,7 +8,7 @@ import sqlparse
 from .models import Table, Record
 from .record_parser import parse_record
 from .varint_parser import parse_varint
-
+from .statement_parser import parse_statement
 
 @dataclass
 class DatabaseHeader:
@@ -241,60 +241,28 @@ def get_table(database_file_path :str, table_name: str) -> Optional[Table]:
 
 
 def execute_statement(statement):
-    parsed_statement = sqlparse.parse(statement)[0]
+    parsed_statement = parse_statement(statement)
 
-    if parsed_statement.get_type() == "SELECT":
-        aggregations = []
-        columns_to_select = []
-        filter_clauses = []
+    table = get_table(database_file_path, parsed_statement.table_name)
+    rows = read_table_rows(database_file_path, table)
 
-        current_index, token_after_select = parsed_statement.token_next(0)
+    for filter_clause in parsed_statement.filter_clauses:
+        rows = [row for row in rows if (row[filter_clause[0]] or b"").decode('utf-8') == filter_clause[1]]
 
-        if isinstance(token_after_select, sqlparse.sql.Function):
-            function_name_token = token_after_select.token_matching(lambda token: isinstance(token, sqlparse.sql.Identifier), 0)
-            function_name = str(function_name_token)
-
-            if function_name.lower() == "count":
-                aggregations.append("COUNT")
-            else:
-                raise Exception(f"Unknown function: {function_name}")
-        else:
-            column_name_tokens = token_after_select if isinstance(token_after_select, sqlparse.sql.Identifier) else token_after_select.get_identifiers()
-            columns_to_select = [str(column_name_token) for column_name_token in column_name_tokens]
-
-        current_index, _from_token = parsed_statement.token_next(current_index)
-        current_index, table_name_token = parsed_statement.token_next(current_index)
-        table_name = str(table_name_token)
-
-        current_index, token_after_table_name = parsed_statement.token_next(current_index)
-
-        if isinstance(token_after_table_name, sqlparse.sql.Where):
-            where_token_list = token_after_table_name
-            comparison_token = where_token_list.token_matching(lambda token: isinstance(token, sqlparse.sql.Comparison), 0)
-            filter_clauses.append((str(comparison_token.left), str(comparison_token.right).strip("'")))
-
-        table = get_table(database_file_path, table_name)
-        rows = read_table_rows(database_file_path, table)
-
-        for filter_clause in filter_clauses:
-            rows = [row for row in rows if (row[filter_clause[0]] or b"").decode('utf-8') == filter_clause[1]]
-
-        if aggregations:
-            print(len(rows))
-        else:
-            def format_value(value):
-                if value is None:
-                    return ""
-
-                if isinstance(value, int):
-                    return str(value)
-
-                return value.decode('utf-8')
-
-            for row in rows:
-                print("|".join(format_value(row[column_name]) for column_name in columns_to_select))
+    if parsed_statement.aggregations:
+        print(len(rows))
     else:
-        raise Exception(f"Unknown SQL statement: {statement}")
+        def format_value(value):
+            if value is None:
+                return ""
+
+            if isinstance(value, int):
+                return str(value)
+
+            return value.decode('utf-8')
+
+        for row in rows:
+            print("|".join(format_value(row[column_name]) for column_name in parsed_statement.columns_to_select))
 
 
 if command_or_statement.startswith("."):
