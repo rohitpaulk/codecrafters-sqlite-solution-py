@@ -53,6 +53,10 @@ def get_table(database_file_path :str, table_name: str) -> Optional[Table]:
     sqlite_schema_table_row = read_sqlite_schema_table_row(database_file_path, table_name)
     sqlite_schema_index_rows = read_sqlite_schema_index_rows(database_file_path, table_name)
 
+    for row in sqlite_schema_index_rows:
+        if row['sql'] is None:
+            print(row)
+
     return Table(
         name=sqlite_schema_table_row['tbl_name'].decode('utf-8'),
         root_page=sqlite_schema_table_row['rootpage'],
