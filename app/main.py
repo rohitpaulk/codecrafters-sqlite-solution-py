@@ -2,12 +2,16 @@ import sys
 from typing import Optional, List, Tuple
 
 from .models import (
-    Table,
-    Page,
-    LeafTableBTreePage,
     Index,
+    Table,
+)
+
+from .pages import (
+    InteriorIndexBTreePage,
     InteriorTableBTreePage,
-    InteriorIndexBTreePage
+    LeafIndexBTreePage,
+    LeafTableBTreePage,
+    Page,
 )
 
 from .statement_parser import parse_statement
@@ -85,43 +89,43 @@ def read_table_rows(database_file_path: str, table: Table):
 
 
 def read_rows_using_index(database_file_path, table: Table, index: Index, filter_clauses: List[Tuple[str, str]]):
-    with open(database_file_path, "rb") as database_file:
-        page = Page.parse_unknown_type_from(database_file, index.root_page)
-
-        value_to_filter_by = filter_clauses[0][1]
+    def collect_rowids_from_interior_or_leaf_page(database_file, index: Index, page_number: int, value_to_filter_by: str):
+        page = Page.parse_unknown_type_from(database_file, page_number)
 
         if page.is_leaf_index_btree_page:
-            print("Hit leaf index btree page!")
-            return []
-            # page = LeafIndexBTreePage.parse_from(database_file, index.root_page, table)
-            # return page.records
+            # print(f"Page#{page.number}: Hit leaf index btree page!")
+            page = LeafIndexBTreePage.parse_from(database_file, page_number, index)
+
+            # print(f"  - keys: {[cell.key for cell in page.cells]}")
+            return [cell.rowid for cell in page.cells if cell.key == value_to_filter_by]
         elif page.is_interior_index_btree_page:
-            print("Hit interior index btree page!")
-            page = InteriorIndexBTreePage.parse_from(database_file, index.root_page, table)
-            print(page.cells)
+            # print(f"Page#{page.number}: Hit interior index btree page!")
+            page = InteriorIndexBTreePage.parse_from(database_file, page_number, index)
+
+            # print(f"  - pointers: {[(cell.key, cell.left_child_pointer) for cell in page.cells]}")
+
+            row_ids = []
 
             for cell in page.cells:
-                page = InteriorIndexBTreePage.parse_from(database_file, cell.left_child_pointer, table)
-                print(page.cells)
+                if cell.key == value_to_filter_by:
+                    row_ids.append(cell.rowid)
 
-                return []
+                if cell.key >= value_to_filter_by:
+                    row_ids += collect_rowids_from_interior_or_leaf_page(database_file, index, cell.left_child_pointer, value_to_filter_by)
 
-                if value_to_filter_by <= cell.key.decode('utf-8'):
-                    print(f"{value_to_filter_by} <= {cell.key}! Visiting left child...")
-                    page = InteriorIndexBTreePage.parse_from(database_file, cell.left_child_pointer, table)
-                    print(page.cells)
-                else:
-                    print(f"{value_to_filter_by} > {cell.key}!")
+                    if cell.key > value_to_filter_by:
+                        break
 
-            #
-            # records = []
-            #
-            # for cell in page.cells:
-            #     records += collect_records_from_interior_or_leaf_page(database_file, cell.left_child_pointer)
-            #
-            # records += collect_records_from_interior_or_leaf_page(database_file, page.right_most_pointer)
-            #
-            return []
+            if page.cells[-1].key <= value_to_filter_by:
+                row_ids += collect_rowids_from_interior_or_leaf_page(database_file, index, page.right_most_pointer, value_to_filter_by)
+
+            return row_ids
+
+    value_to_filter_by = filter_clauses[0][1]
+
+    with open(database_file_path, "rb") as database_file:
+        rowids = collect_rowids_from_interior_or_leaf_page(database_file, index, index.root_page, value_to_filter_by)
+        return rowids
 
 
 def handle_dot_command(command):

@@ -1,7 +1,7 @@
 from .varint_parser import parse_varint
 from .models import Table, Record, Index
 
-from typing import List, Any
+from typing import List, Any, Tuple
 
 
 def parse_record_value(stream, serial_type):
@@ -36,7 +36,7 @@ def parse_record_value(stream, serial_type):
 def parse_record(stream, number_of_values: int) -> List[Any]:
     _number_of_bytes_in_header = parse_varint(stream)
 
-    serial_types = [parse_varint(stream) for i in range(number_of_values)]
+    serial_types = [parse_varint(stream) for _i in range(number_of_values)]
     return [parse_record_value(stream, serial_type) for serial_type in serial_types]
 
 
@@ -50,6 +50,6 @@ def parse_table_record(stream, table: Table, rowid: int) -> Record:
     )
 
 
-def parse_index_record(stream, index: Index) -> str:
-    values = parse_record(stream, len(index.column_names))
-    return values[0].decode('utf-8')
+def parse_index_record(stream, index: Index) -> Tuple[str, int]:
+    values = parse_record(stream, len(index.column_names) + 1)  # Has value + ID?
+    return (values[0].decode('utf-8'), values[1])
