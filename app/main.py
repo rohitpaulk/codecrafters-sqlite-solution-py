@@ -38,6 +38,8 @@ def read_sqlite_schema_table_row(database_file_path: str, table_name: str):
         if row['type'] == b'table' and row['tbl_name'].decode('utf-8') == table_name:
             return row
 
+    return None
+
 
 def read_sqlite_schema_index_rows(database_file_path: str, table_name: str):
     return [
