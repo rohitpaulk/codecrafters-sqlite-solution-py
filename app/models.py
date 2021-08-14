@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 import sys
 
 from .varint_parser import parse_varint
@@ -17,6 +17,13 @@ class Index:
     name: str
     root_page: int
     create_index_sql: str
+
+    @property
+    def column_names(self):
+        sql = self.create_index_sql.strip().split("(")[1]
+        sql = sql.split(")")[0]
+
+        return [sql]
 
 
 @dataclass
@@ -42,6 +49,14 @@ class Table:
             )
             for column_definition in column_definitions
         ]
+
+    def find_index_for(self, column_names) -> Optional[Index]:
+        for column_name in column_names:
+            for index in self.indexes:
+                if column_name in index.column_names:
+                    return index
+
+        return None
 
 
 @dataclass
@@ -78,14 +93,14 @@ class PageHeader:
 
         instance.page_type = int.from_bytes(database_file.read(1), "big")
 
-        if not (instance.is_leaf_table_btree_page ^ instance.is_interior_table_btree_page):
+        if not (instance.is_leaf_page ^ instance.is_interior_page):
             raise Exception(f"expected a leaf or interior page, got: {instance.page_type_description}")
 
         instance.first_free_block_start = int.from_bytes(database_file.read(2), "big")
         instance.number_of_cells = int.from_bytes(database_file.read(2), "big")
         instance.start_of_content_area = int.from_bytes(database_file.read(2), "big")
         instance.fragmented_free_bytes = int.from_bytes(database_file.read(1), "big")
-        instance.right_most_pointer = int.from_bytes(database_file.read(4), "big") if instance.is_interior_table_btree_page else None
+        instance.right_most_pointer = int.from_bytes(database_file.read(4), "big") if instance.is_interior_page else None
 
         return instance
 
@@ -95,11 +110,23 @@ class PageHeader:
 
     @property
     def is_leaf_page(self):
-        return self.is_leaf_table_btree_page # TODO: Include index pages too
+        return self.is_leaf_table_btree_page or self.is_leaf_index_btree_page
+
+    @property
+    def is_interior_page(self):
+        return self.is_interior_index_btree_page or self.is_interior_table_btree_page
+
+    @property
+    def is_leaf_index_btree_page(self):
+        return self.page_type == 10
 
     @property
     def is_leaf_table_btree_page(self):
         return self.page_type == 13
+
+    @property
+    def is_interior_index_btree_page(self):
+        return self.page_type == 2
 
     @property
     def is_interior_table_btree_page(self):
@@ -108,8 +135,10 @@ class PageHeader:
     @property
     def page_type_description(self):
         return {
+            2: 'interior index btree',
             5: 'interior table btree',
-            13: 'leaf table btree'
+            10: 'leaf index btree',
+            13: 'leaf table btree',
         }[self.page_type]
 
 
@@ -134,6 +163,8 @@ class Page:
             return LeafTableBTreePage(header=page_header, number=page_number, size=page_size)
         elif page_header.is_interior_table_btree_page:
             return InteriorTableBTreePage(header=page_header, number=page_number, size=page_size)
+        elif page_header.is_interior_index_btree_page:
+            return InteriorIndexBTreePage(header=page_header, number=page_number, size=page_size)
 
         raise Exception(f"Invalid page type: {page_header.page_type_description}")
 
@@ -146,8 +177,16 @@ class Page:
         return 100 if self.number == 1 else 0
 
     @property
+    def is_leaf_index_btree_page(self):
+        return self.header.is_leaf_index_btree_page
+
+    @property
     def is_leaf_table_btree_page(self):
         return self.header.is_leaf_table_btree_page
+
+    @property
+    def is_interior_index_btree_page(self):
+        return self.header.is_interior_index_btree_page
 
     @property
     def is_interior_table_btree_page(self):
@@ -173,7 +212,7 @@ class LeafTableBTreePage(Page):
         return page
 
     def parse_records_from(self, database_file, table: Table):
-        from .record_parser import parse_record  # Avoid circular import
+        from .record_parser import parse_table_record  # Avoid circular import
 
         cell_pointers = self.read_cell_pointers(database_file)
 
@@ -185,7 +224,7 @@ class LeafTableBTreePage(Page):
 
             _number_of_bytes_in_payload = parse_varint(database_file)
             rowid = parse_varint(database_file)
-            self.records.append(parse_record(database_file, table, rowid))
+            self.records.append(parse_table_record(database_file, table, rowid))
 
 
 @dataclass
@@ -214,6 +253,47 @@ class InteriorTableBTreePage(Page):
             left_child_pointer = int.from_bytes(database_file.read(4), "big")
             key = parse_varint(database_file)
             self.cells.append(InteriorTableBTreePageCell(left_child_pointer=left_child_pointer, key=key))
+
+    @property
+    def right_most_pointer(self):
+        return self.header.right_most_pointer
+
+
+@dataclass
+class InteriorIndexBTreePageCell:
+    left_child_pointer: int
+    key: int
+
+
+class InteriorIndexBTreePage(Page):
+    cells: List[InteriorIndexBTreePageCell]
+
+    @classmethod
+    def parse_from(cls, database_file, page_number, _table: Table):
+        page = Page.parse_unknown_type_from(database_file, page_number)
+        page.parse_cells_from(database_file)
+        return page
+
+    def parse_cells_from(self, database_file):
+        cell_pointers = self.read_cell_pointers(database_file)
+
+        self.cells = []
+
+        for index, cell_pointer in enumerate(cell_pointers):
+            from .record_parser import parse_index_record  # Avoid circular import
+
+            database_file.seek(self.start_index + cell_pointer)
+
+            left_child_pointer = int.from_bytes(database_file.read(4), "big")
+            number_of_bytes_in_payload = parse_varint(database_file)
+
+            print(f"{number_of_bytes_in_payload} bytes in payload")
+
+            if cell_pointer + number_of_bytes_in_payload > self.size:
+                raise Exception("Overflow page!")
+
+            key = parse_index_record(database_file)
+            self.cells.append(InteriorIndexBTreePageCell(left_child_pointer=left_child_pointer, key=key))
 
     @property
     def right_most_pointer(self):

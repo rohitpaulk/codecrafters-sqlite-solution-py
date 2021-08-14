@@ -1,8 +1,10 @@
 from .varint_parser import parse_varint
-from .models import Table, Record
+from .models import Table, Record, Index
+
+from typing import List, Any
 
 
-def parse_column_value(stream, serial_type):
+def parse_record_value(stream, serial_type):
     if (serial_type >= 13) and (serial_type % 2 == 1):
         # Text encoding
         n_bytes = (serial_type - 13) // 2
@@ -31,14 +33,23 @@ def parse_column_value(stream, serial_type):
         raise Exception(f"Unhandled serial_type {serial_type}")
 
 
-def parse_record(stream, table: Table, rowid: int) -> Record:
+def parse_record(stream, number_of_values: int) -> List[Any]:
     _number_of_bytes_in_header = parse_varint(stream)
 
-    serial_types = [parse_varint(stream) for i in range(len(table.columns))]
-    column_values = [parse_column_value(stream, serial_type) for serial_type in serial_types]
+    serial_types = [parse_varint(stream) for i in range(number_of_values)]
+    return [parse_record_value(stream, serial_type) for serial_type in serial_types]
+
+
+def parse_table_record(stream, table: Table, rowid: int) -> Record:
+    column_values = parse_record(stream, len(table.columns))
 
     return Record(
         column_names_to_values={
             column.name: rowid if column.is_primary_key else column_values[i] for i, column in enumerate(table.columns)
         }
     )
+
+
+def parse_index_record(stream, index: Index) -> str:
+    values = parse_record(stream, len(index.column_names))
+    return values[0].decode('utf-8')

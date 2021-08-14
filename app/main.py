@@ -1,12 +1,13 @@
 import sys
-from typing import Optional
+from typing import Optional, List, Tuple
 
 from .models import (
     Table,
     Page,
     LeafTableBTreePage,
     Index,
-    InteriorTableBTreePage
+    InteriorTableBTreePage,
+    InteriorIndexBTreePage
 )
 
 from .statement_parser import parse_statement
@@ -18,45 +19,14 @@ command_or_statement = sys.argv[2]
 SQLITE_SCHEMA_TABLE = Table(
     name="sqlite_schema",
     root_page=1,
-    create_table_sql="CREATE TABLE sqlite_schema ( type text, name text, tbl_name text, rootpage text, sql text )"
+    create_table_sql="CREATE TABLE sqlite_schema ( type text, name text, tbl_name text, rootpage text, sql text )",
+    indexes=[]
 )
 
 
 def read_sqlite_schema_records(database_file_path):
     rows = read_table_rows(database_file_path, SQLITE_SCHEMA_TABLE)
     return [row for row in rows if row["tbl_name"] != b"sqlite_sequence"]
-
-
-def read_table_rows(database_file_path: str, table: Table):
-    def collect_records_from_interior_or_leaf_page(database_file, page_number):
-        page = Page.parse_unknown_type_from(database_file, page_number)
-
-        if page.is_leaf_table_btree_page:
-            page = LeafTableBTreePage.parse_from(database_file, page_number, table)
-            return page.records
-        elif page.is_interior_table_btree_page:
-            page = InteriorTableBTreePage.parse_from(database_file, page_number, table)
-
-            records = []
-
-            for cell in page.cells:
-                records += collect_records_from_interior_or_leaf_page(database_file, cell.left_child_pointer)
-
-            records += collect_records_from_interior_or_leaf_page(database_file, page.right_most_pointer)
-
-            return records
-
-    with open(database_file_path, "rb") as database_file:
-        return collect_records_from_interior_or_leaf_page(database_file, table.root_page)
-
-
-def handle_dot_command(command):
-    if command == ".dbinfo":
-        sqlite_schema_rows = read_sqlite_schema_records(database_file_path)
-        print(f"number of tables: {len(sqlite_schema_rows)}")
-    elif command == ".tables":
-        sqlite_schema_rows = read_sqlite_schema_records(database_file_path)
-        print(" ".join([row['tbl_name'].decode('utf-8') for row in sqlite_schema_rows]))
 
 
 def read_sqlite_schema_table_row(database_file_path: str, table_name: str):
@@ -91,14 +61,91 @@ def get_table(database_file_path :str, table_name: str) -> Optional[Table]:
     )
 
 
+def read_table_rows(database_file_path: str, table: Table):
+    def collect_records_from_interior_or_leaf_page(database_file, page_number):
+        page = Page.parse_unknown_type_from(database_file, page_number)
+
+        if page.is_leaf_table_btree_page:
+            page = LeafTableBTreePage.parse_from(database_file, page_number, table)
+            return page.records
+        elif page.is_interior_table_btree_page:
+            page = InteriorTableBTreePage.parse_from(database_file, page_number, table)
+
+            records = []
+
+            for cell in page.cells:
+                records += collect_records_from_interior_or_leaf_page(database_file, cell.left_child_pointer)
+
+            records += collect_records_from_interior_or_leaf_page(database_file, page.right_most_pointer)
+
+            return records
+
+    with open(database_file_path, "rb") as database_file:
+        return collect_records_from_interior_or_leaf_page(database_file, table.root_page)
+
+
+def read_rows_using_index(database_file_path, table: Table, index: Index, filter_clauses: List[Tuple[str, str]]):
+    with open(database_file_path, "rb") as database_file:
+        page = Page.parse_unknown_type_from(database_file, index.root_page)
+
+        value_to_filter_by = filter_clauses[0][1]
+
+        if page.is_leaf_index_btree_page:
+            print("Hit leaf index btree page!")
+            return []
+            # page = LeafIndexBTreePage.parse_from(database_file, index.root_page, table)
+            # return page.records
+        elif page.is_interior_index_btree_page:
+            print("Hit interior index btree page!")
+            page = InteriorIndexBTreePage.parse_from(database_file, index.root_page, table)
+            print(page.cells)
+
+            for cell in page.cells:
+                page = InteriorIndexBTreePage.parse_from(database_file, cell.left_child_pointer, table)
+                print(page.cells)
+
+                return []
+
+                if value_to_filter_by <= cell.key.decode('utf-8'):
+                    print(f"{value_to_filter_by} <= {cell.key}! Visiting left child...")
+                    page = InteriorIndexBTreePage.parse_from(database_file, cell.left_child_pointer, table)
+                    print(page.cells)
+                else:
+                    print(f"{value_to_filter_by} > {cell.key}!")
+
+            #
+            # records = []
+            #
+            # for cell in page.cells:
+            #     records += collect_records_from_interior_or_leaf_page(database_file, cell.left_child_pointer)
+            #
+            # records += collect_records_from_interior_or_leaf_page(database_file, page.right_most_pointer)
+            #
+            return []
+
+
+def handle_dot_command(command):
+    if command == ".dbinfo":
+        sqlite_schema_rows = read_sqlite_schema_records(database_file_path)
+        print(f"number of tables: {len(sqlite_schema_rows)}")
+    elif command == ".tables":
+        sqlite_schema_rows = read_sqlite_schema_records(database_file_path)
+        print(" ".join([row['tbl_name'].decode('utf-8') for row in sqlite_schema_rows]))
+
+
 def execute_statement(statement):
     parsed_statement = parse_statement(statement)
 
     table = get_table(database_file_path, parsed_statement.table_name)
-    rows = read_table_rows(database_file_path, table)
+    usable_index = table.find_index_for(parsed_statement.columns_used_in_filter_clauses)
 
-    for filter_clause in parsed_statement.filter_clauses:
-        rows = [row for row in rows if (row[filter_clause[0]] or b"").decode('utf-8') == filter_clause[1]]
+    if usable_index:
+        rows = read_rows_using_index(database_file_path, table, usable_index, parsed_statement.filter_clauses)
+    else:
+        rows = read_table_rows(database_file_path, table)
+
+        for filter_clause in parsed_statement.filter_clauses:
+            rows = [row for row in rows if (row[filter_clause[0]] or b"").decode('utf-8') == filter_clause[1]]
 
     if parsed_statement.aggregations:
         print(len(rows))
