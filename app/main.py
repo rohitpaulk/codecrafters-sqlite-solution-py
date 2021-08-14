@@ -4,6 +4,7 @@ from typing import Optional, List, Tuple
 from .models import (
     Index,
     Table,
+    Record,
 )
 
 from .pages import (
@@ -127,7 +128,7 @@ def read_rows_using_index(database_file_path, table: Table, index: Index, filter
 
     with open(database_file_path, "rb") as database_file:
         rowids = collect_rowids_from_interior_or_leaf_page(database_file, index, index.root_page, value_to_filter_by)
-        return rowids
+        return [Record(column_names_to_values={'id': rowid}) for rowid in rowids]
 
 
 def handle_dot_command(command):
