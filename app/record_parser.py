@@ -44,6 +44,7 @@ def parse_table_record(stream, table: Table, rowid: int) -> Record:
     column_values = parse_record(stream, len(table.columns))
 
     return Record(
+        rowid=rowid,
         column_names_to_values={
             column.name: rowid if column.is_primary_key else column_values[i] for i, column in enumerate(table.columns)
         }

@@ -92,7 +92,26 @@ def read_all_table_rows(database_file_path: str, table: Table):
 
 
 def read_one_table_row(database_file, table: Table, rowid: int):
-    return Record(column_names_to_values={'id': rowid, 'name': b'testing'})
+    def fetch_row_from_interior_or_leaf_page(page_number: int):
+        page = Page.parse_unknown_type_from(database_file, page_number)
+
+        if page.is_leaf_table_btree_page:
+            page = LeafTableBTreePage.parse_from(database_file, page_number, table)
+            for record in page.records:
+                if record.rowid == rowid:
+                    return record
+
+            return None
+        elif page.is_interior_table_btree_page:
+            page = InteriorTableBTreePage.parse_from(database_file, page_number, table)
+
+            for cell in page.cells:
+                if cell.key >= rowid:
+                    return fetch_row_from_interior_or_leaf_page(cell.left_child_pointer)
+
+            return fetch_row_from_interior_or_leaf_page(page.right_most_pointer)
+
+    return fetch_row_from_interior_or_leaf_page(table.root_page)
 
 
 def read_rows_using_index(database_file_path, table: Table, index: Index, filter_clauses: List[Tuple[str, str]]):

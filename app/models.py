@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 
 @dataclass
@@ -58,7 +58,8 @@ class Table:
 
 @dataclass
 class Record:
-    column_names_to_values: Dict[str, str]
+    column_names_to_values: Dict[str, Any]
+    rowid: int
 
     def __getitem__(self, item):
         return self.column_names_to_values[item]
