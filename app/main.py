@@ -92,7 +92,7 @@ def read_all_table_rows(database_file_path: str, table: Table):
 
 
 def read_one_table_row(database_file, table: Table, rowid: int):
-    return Record(column_names_to_values={'id': rowid, 'name': 'testing'})
+    return Record(column_names_to_values={'id': rowid, 'name': b'testing'})
 
 
 def read_rows_using_index(database_file_path, table: Table, index: Index, filter_clauses: List[Tuple[str, str]]):
