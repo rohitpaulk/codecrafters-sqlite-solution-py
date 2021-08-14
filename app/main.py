@@ -1,7 +1,14 @@
 import sys
 from typing import Optional
 
-from .models import Table, Page, LeafTableBTreePage, InteriorTableBTreePage
+from .models import (
+    Table,
+    Page,
+    LeafTableBTreePage,
+    Index,
+    InteriorTableBTreePage
+)
+
 from .statement_parser import parse_statement
 
 database_file_path = sys.argv[1]
@@ -52,19 +59,35 @@ def handle_dot_command(command):
         print(" ".join([row['tbl_name'].decode('utf-8') for row in sqlite_schema_rows]))
 
 
-def read_sqlite_schema_row(database_file_path: str, table_name: str):
+def read_sqlite_schema_table_row(database_file_path: str, table_name: str):
     for row in read_sqlite_schema_records(database_file_path):
-        if row['tbl_name'].decode('utf-8') == table_name:
+        if row['type'] == b'table' and row['tbl_name'].decode('utf-8') == table_name:
             return row
 
 
+def read_sqlite_schema_index_rows(database_file_path: str, table_name: str):
+    return [
+        row for row in read_sqlite_schema_records(database_file_path)
+        if row['type'] == b'index' and row['tbl_name'].decode('utf-8') == table_name
+    ]
+
+
 def get_table(database_file_path :str, table_name: str) -> Optional[Table]:
-    sqlite_schema_row = read_sqlite_schema_row(database_file_path, table_name)
+    sqlite_schema_table_row = read_sqlite_schema_table_row(database_file_path, table_name)
+    sqlite_schema_index_rows = read_sqlite_schema_index_rows(database_file_path, table_name)
 
     return Table(
-        name=sqlite_schema_row['tbl_name'].decode('utf-8'),
-        root_page=sqlite_schema_row['rootpage'],
-        create_table_sql=sqlite_schema_row['sql'].decode('utf-8')
+        name=sqlite_schema_table_row['tbl_name'].decode('utf-8'),
+        root_page=sqlite_schema_table_row['rootpage'],
+        create_table_sql=sqlite_schema_table_row['sql'].decode('utf-8'),
+        indexes=[
+            Index(
+                name=sqlite_schema_index_row['name'].decode('utf-8'),
+                root_page=sqlite_schema_index_row['rootpage'],
+                create_index_sql=sqlite_schema_index_row['sql'].decode('utf-8')
+            )
+            for sqlite_schema_index_row in sqlite_schema_index_rows
+        ]
     )
 
 

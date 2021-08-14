@@ -13,10 +13,18 @@ class Column:
 
 
 @dataclass
+class Index:
+    name: str
+    root_page: int
+    create_index_sql: str
+
+
+@dataclass
 class Table:
     name: str
     root_page: int
     create_table_sql: str
+    indexes: List[Index]
 
     @property
     def columns(self) -> List[Column]:
